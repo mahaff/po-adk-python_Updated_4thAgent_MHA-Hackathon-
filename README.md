@@ -83,7 +83,7 @@ This repository is the working submission for the Prompt Opinion hackathon. The 
 
 ### Full write-up
 
-The longer submission narrative is kept in [`HACKATHON_SUBMISSION.md`](HACKATHON_SUBMISSION.md). Use that file if you want the full hackathon-style write-up, and use this README if you want the repo structure and setup instructions in one place.
+The longer submission narrative is kept in [`HACKATHON_SUBMISSION.md`](HACKATHON_SUBMISSION.md).
 
 ---
 
