@@ -22,13 +22,19 @@ from .tools import get_current_datetime, look_up_icd10
 # Set GENERAL_AGENT_MODEL in your .env to switch models.
 #
 # All models are handled via LiteLLM. Use the appropriate prefix:
-#   GENERAL_AGENT_MODEL=gemini/gemini-2.5-flash   (Google AI Studio, default)
-#   GENERAL_AGENT_MODEL=openai/gpt-4o
-#   GENERAL_AGENT_MODEL=anthropic/claude-sonnet-4-6
-#   GENERAL_AGENT_MODEL=vertex_ai/gemini-2.5-flash
+#   GENERAL_AGENT_MODEL=gemini/gemini-2.5-flash   (Google AI Studio, default - higher rate limits)
+#   GENERAL_AGENT_MODEL=gemini/gemini-1.5-flash   (alternative with good rate limits)
+#   GENERAL_AGENT_MODEL=openai/gpt-4o             (OpenAI - requires API key)
+#   GENERAL_AGENT_MODEL=anthropic/claude-3-5-sonnet (Anthropic - requires API key)
+#   GENERAL_AGENT_MODEL=vertex_ai/gemini-2.5-flash (Vertex AI - different quota system)
+#
+# For Gemini free tier rate limits, consider:
+# - Switching to gemini-2.5-flash (higher limits than gemini-3-flash)
+# - Upgrading to Gemini paid tier for higher limits
+# - Using Vertex AI which has different quota management
 # ──────────────────────────────────────────────────────────────────────────────
 _model_name = os.getenv("GENERAL_AGENT_MODEL", "gemini/gemini-2.5-flash")
-_model = LiteLlm(model=_model_name)
+_model = LiteLlm(model=_model_name, max_retries=3, retry_delay=2.0)
 
 root_agent = Agent(
     name="general_agent",

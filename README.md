@@ -508,7 +508,7 @@ Configure one or more valid keys in your environment:
 
 ```python
 # Either comma-separated:
-API_KEYS=my-secret-key-123,another-valid-key
+API_KEYS=my-secret-key-123,
 
 # Or named slots:
 API_KEY_PRIMARY=my-secret-key-123

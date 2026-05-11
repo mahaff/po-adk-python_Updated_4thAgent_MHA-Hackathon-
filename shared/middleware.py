@@ -61,15 +61,33 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
     params.metadata so the ADK callback path can find it.
     """
 
+    @staticmethod
+    def _jsonrpc_empty_input_response(request_id):
+        return JSONResponse(
+            status_code=200,
+            content={
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "content": "Invalid or empty input received",
+                },
+            },
+        )
+
     async def dispatch(self, request: Request, call_next):
         # Read and parse the body so we can log it and inspect metadata.
         body_bytes = await request.body()
         body_text  = body_bytes.decode("utf-8", errors="replace")
         parsed     = {}
+        parse_failed = False
         try:
             parsed = json.loads(body_text) if body_text else {}
         except json.JSONDecodeError:
+            parse_failed = True
             parsed = {}
+
+        # Fix the body for subsequent request.json() calls
+        request._body = body_text.encode("utf-8")  # type: ignore[attr-defined]
 
         # Rewrite legacy PascalCase A2A method names to the current spec names.
         # Prompt Opinion (and other older clients) send e.g. "SendStreamingMessage"
@@ -142,8 +160,8 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             )
 
         # Bridge FHIR metadata from message.metadata → params.metadata so that
-        # the ADK before_model_callback (fhir_hook.extract_fhir_context) can
-        # find it regardless of where the caller placed it.
+        # the ADK before_model_callback (if enabled by another agent) can find
+        # it regardless of where the caller placed it.
         fhir_key, fhir_data = extract_fhir_from_payload(parsed)
         if isinstance(parsed, dict):
             params = parsed.get("params")
@@ -165,12 +183,12 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
                     logger.info("FHIR_URL_FOUND value=%s",         fhir_data.get("fhirUrl", "[EMPTY]"))
                     logger.info("FHIR_TOKEN_FOUND fingerprint=%s", token_fingerprint(fhir_data.get("fhirToken", "")))
                     logger.info("FHIR_PATIENT_FOUND value=%s",     fhir_data.get("patientId", "[EMPTY]"))
-                else:
+                elif params.get("metadata") or (params.get("message") if isinstance(params.get("message"), dict) else {}).get("metadata"):
                     logger.info("FHIR_NOT_FOUND_IN_PAYLOAD keys_checked=params.metadata,message.metadata")
 
         # Agent-card endpoint is intentionally public — it tells callers that
         # an API key IS required before they start authenticating.
-        if request.url.path == "/.well-known/agent-card.json":
+        if request.url.path in ["/", "/.well-known/agent-card.json"]:
             return await call_next(request)
 
         api_key = request.headers.get("X-API-Key")
@@ -199,6 +217,27 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             "security_authorized path=%s method=%s key_prefix=%s",
             request.url.path, request.method, api_key[:6],
         )
+
+        if parse_failed:
+            logger.warning(
+                "jsonrpc_parse_error path=%s body_preview=%s",
+                request.url.path, body_text[:200],
+            )
+            return self._jsonrpc_empty_input_response(None)
+
+        if isinstance(parsed, dict):
+            params = parsed.get("params")
+            message = params.get("message") if isinstance(params, dict) else None
+            parts = message.get("parts") if isinstance(message, dict) else None
+            if parsed.get("method") in {"message/send", "message/stream"} and (
+                not isinstance(message, dict) or not isinstance(parts, list) or not parts
+            ):
+                logger.warning(
+                    "jsonrpc_empty_message_payload id=%s method=%s path=%s",
+                    parsed.get("id"), parsed.get("method"), request.url.path,
+                )
+                return self._jsonrpc_empty_input_response(parsed.get("id"))
+
         response = await call_next(request)
 
         # Only post-process JSON responses (not SSE streams).

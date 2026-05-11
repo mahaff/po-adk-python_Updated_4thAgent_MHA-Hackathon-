@@ -203,6 +203,10 @@ def create_a2a_app(
 
     app = to_a2a(agent, port=port, agent_card=agent_card)
 
+    # Add a public health check route for GET /
+    from starlette.responses import JSONResponse
+    app.add_route("/", lambda r: JSONResponse({"message": "Agent is running"}), methods=["GET"])
+
     # Only attach the key-enforcement middleware for authenticated agents.
     if require_api_key:
         app.add_middleware(ApiKeyMiddleware)

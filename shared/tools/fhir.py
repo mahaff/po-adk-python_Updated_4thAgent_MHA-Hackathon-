@@ -64,8 +64,9 @@ def _get_fhir_context(tool_context: ToolContext):
 
 def _fhir_get(fhir_url: str, token: str, path: str, params: dict | None = None) -> dict:
     """Perform an authenticated FHIR GET and return the parsed JSON response."""
+    request_url = f"{fhir_url.rstrip('/')}/{path.lstrip('/')}"
     response = httpx.get(
-        f"{fhir_url}/{path}",
+        request_url,
         params=params,
         headers={
             "Authorization": f"Bearer {token}",
@@ -81,6 +82,7 @@ def _http_error_result(exc: httpx.HTTPStatusError) -> dict:
     return {
         "status":        "error",
         "http_status":   exc.response.status_code,
+        "request_url":   str(exc.request.url) if exc.request is not None else None,
         "error_message": f"FHIR server returned HTTP {exc.response.status_code}: {exc.response.text[:200]}",
     }
 
@@ -253,6 +255,99 @@ def get_active_conditions(tool_context: ToolContext) -> dict:
         "patient_id": patient_id,
         "count":      len(conditions),
         "conditions": conditions,
+    }
+
+
+def calculate_readmission_risk(tool_context: ToolContext) -> dict:
+    """Estimate 30-day readmission risk using FHIR patient data."""
+    ctx = _get_fhir_context(tool_context)
+    if isinstance(ctx, dict):
+        return ctx
+    fhir_url, fhir_token, patient_id = ctx
+
+    logger.info("tool_calculate_readmission_risk patient_id=%s", patient_id)
+    try:
+        condition_bundle = _fhir_get(
+            fhir_url, fhir_token, "Condition",
+            params={"patient": patient_id, "clinical-status": "active", "_count": "50"},
+        )
+        medication_bundle = _fhir_get(
+            fhir_url, fhir_token, "MedicationRequest",
+            params={"patient": patient_id, "status": "active", "_count": "50"},
+        )
+        observation_bundle = _fhir_get(
+            fhir_url, fhir_token, "Observation",
+            params={"patient": patient_id, "category": "vital-signs", "_sort": "-date", "_count": "20"},
+        )
+    except httpx.HTTPStatusError as e:
+        return _http_error_result(e)
+    except Exception as e:
+        return _connection_error_result(e)
+
+    conditions = [entry.get("resource", {}) for entry in condition_bundle.get("entry", [])]
+    medications = [entry.get("resource", {}) for entry in medication_bundle.get("entry", [])]
+    observations = [entry.get("resource", {}) for entry in observation_bundle.get("entry", [])]
+
+    risk_score = 0
+    reasons = []
+
+    if len(conditions) >= 3:
+        risk_score += 2
+        reasons.append("multiple active chronic conditions")
+    elif len(conditions) >= 1:
+        risk_score += 1
+        reasons.append("at least one active condition")
+
+    if len(medications) >= 5:
+        risk_score += 2
+        reasons.append("polypharmacy with multiple active medications")
+    elif len(medications) >= 1:
+        risk_score += 1
+        reasons.append("current active medications")
+
+    abnormal_obs = 0
+    for obs in observations:
+        code = obs.get("code", {})
+        obs_name = code.get("text") or _coding_display(code.get("coding", []))
+        interpretation = (obs.get("interpretation") or [{}])[0].get("text")
+
+        if any(term in (obs_name or "").lower() for term in ["blood pressure", "bp", "heart rate", "respiratory rate", "temperature", "oxygen", "spo2", "glucose"]):
+            if interpretation and interpretation.lower() not in {"normal", "within normal limits", "w"}:
+                abnormal_obs += 1
+        if interpretation and interpretation.lower() in {"high", "low", "abnormal", "critical"}:
+            abnormal_obs += 1
+
+    if abnormal_obs >= 2:
+        risk_score += 2
+        reasons.append("multiple abnormal vital or lab observations")
+    elif abnormal_obs == 1:
+        risk_score += 1
+        reasons.append("at least one abnormal vital or lab observation")
+
+    if risk_score >= 4:
+        risk = "HIGH"
+    elif risk_score >= 2:
+        risk = "MEDIUM"
+    else:
+        risk = "LOW"
+
+    return {
+        "status": "success",
+        "patient_id": patient_id,
+        "readmission_risk": risk,
+        "risk_score": risk_score,
+        "reason": (
+            "The patient is at " + risk.lower() + " readmission risk because " + "; ".join(reasons) + "."
+            if reasons else "No clear readmission risk factors were identified from the available patient data."
+        ),
+        "conditions_count": len(conditions),
+        "medications_count": len(medications),
+        "abnormal_observations_count": abnormal_obs,
+        "suggestions": [
+            "Review high-risk medications and simplify therapy where possible.",
+            "Ensure appropriate post-discharge follow-up and care coordination.",
+            "Monitor abnormal vital signs and labs closely after discharge.",
+        ],
     }
 
 

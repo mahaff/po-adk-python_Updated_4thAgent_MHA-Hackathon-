@@ -16,6 +16,7 @@ To add new shared tools:
 """
 
 from .fhir import (
+    calculate_readmission_risk,
     get_active_conditions,
     get_active_medications,
     get_patient_demographics,
@@ -23,6 +24,7 @@ from .fhir import (
 )
 
 __all__ = [
+    "calculate_readmission_risk",
     "get_patient_demographics",
     "get_active_medications",
     "get_active_conditions",

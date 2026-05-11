@@ -38,7 +38,7 @@ from shared.fhir_hook import extract_fhir_context
 #   ORCHESTRATOR_MODEL=vertex_ai/gemini-2.5-flash
 # ──────────────────────────────────────────────────────────────────────────────
 _model_name = os.getenv("ORCHESTRATOR_MODEL", "gemini/gemini-2.5-flash")
-_model = LiteLlm(model=_model_name)
+_model = LiteLlm(model=_model_name, max_retries=3, retry_delay=2.0)
 
 root_agent = Agent(
     name="orchestrator",
