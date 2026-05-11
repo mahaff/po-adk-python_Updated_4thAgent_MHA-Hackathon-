@@ -27,10 +27,11 @@ This is not a single-file template. It is a **monorepo with three working agents
 ## Contents
 
 - [What's in this repo](#whats-in-this-repo)
+- [Hackathon submission](#hackathon-submission)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
 - [The three agents](#the-three-agents)
-  - [healthcare\_agent](#healthcare_agent--fhir-connected-clinical-assistant)
+  - [healthcare\_agent](#healthcare_agent--readmission-risk-assistant)
   - [general\_agent](#general_agent--general-purpose-assistant-no-fhir)
   - [orchestrator](#orchestrator--multi-agent-orchestrator)
 - [The shared library](#the-shared-library)
@@ -49,11 +50,40 @@ This is not a single-file template. It is a **monorepo with three working agents
 
 | Agent | Description | FHIR? | Port |
 |---|---|---|---|
-| `healthcare_agent` | Queries a patient's FHIR R4 record — demographics, meds, conditions, observations | ✅ Yes | 8001 |
+| `healthcare_agent` | Text-only readmission risk assistant — analyzes patient summaries and returns HIGH, MEDIUM, or LOW | ❌ No | 8001 |
 | `general_agent` | Date/time queries and ICD-10-CM code lookups — no patient data needed | ❌ No | 8002 |
 | `orchestrator` | Delegates to the other two agents using ADK's built-in sub-agent routing | ✅ Optional | 8003 |
 
 All three share a `shared/` library that provides middleware, logging, the FHIR context hook, FHIR R4 tools, and an app factory — so each agent's own files stay small and focused.
+
+---
+
+## Hackathon submission
+
+This repository is the working submission for the Prompt Opinion hackathon. The README stays focused on the codebase, while this section gives you a short, navigable summary of the submission itself.
+
+### Submission overview
+
+| Item | Notes |
+|---|---|
+| Main focus | A2A-compatible multi-agent healthcare demo |
+| Primary clinical agent | `healthcare_agent` for readmission-risk classification |
+| Routing layer | `orchestrator` delegates to specialist agents |
+| Utility layer | `general_agent` handles date/time and ICD-10 lookups |
+| Security | API-key protected endpoints for the hosted agents |
+| Local secrets | `.env` stays local and is ignored by git |
+
+### Key implementation points
+
+- A2A v1 agent cards and JSON-RPC transport support
+- Prompt Opinion-compatible `readmission-risk` skill
+- Middleware that normalises older Prompt Opinion request shapes
+- Graceful handling for missing or malformed metadata
+- Text-only healthcare agent behavior that does not require FHIR context to respond
+
+### Full write-up
+
+The longer submission narrative is kept in [`HACKATHON_SUBMISSION.md`](HACKATHON_SUBMISSION.md). Use that file if you want the full hackathon-style write-up, and use this README if you want the repo structure and setup instructions in one place.
 
 ---
 
@@ -240,16 +270,16 @@ You should see the agent card JSON describing the agent's capabilities and secur
 
 ## The three agents
 
-### `healthcare_agent` — FHIR-connected clinical assistant
+### `healthcare_agent` — Readmission risk assistant
 
-The most complete example. Receives FHIR credentials from the caller via A2A metadata, extracts them into session state, and uses them to query a FHIR R4 server.
+The healthcare agent now works directly from patient text in the message. It does not require FHIR context or tools to return a readmission-risk classification.
 
 **Files to change when building your own:**
 
 | File | What to change |
 |---|---|
 | `healthcare_agent/agent.py` | Model, instruction, tools list |
-| `healthcare_agent/app.py` | Agent name, description, URL, FHIR extension URI |
+| `healthcare_agent/app.py` | Agent name, description, URL, readmission-risk skill |
 | `shared/tools/fhir.py` | Add or modify FHIR query tools |
 | `shared/middleware.py` | Update `VALID_API_KEYS` |
 
